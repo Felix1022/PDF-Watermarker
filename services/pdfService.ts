@@ -42,15 +42,15 @@ export const applyWatermark = async (
     const pages = pdfDoc.getPages();
     let font;
 
-    // Handle CJK characters by embedding a Songti (Noto Serif SC) font
+    // Handle CJK characters by embedding Noto Serif SC (Songti)
     if (isNonLatin(config.text)) {
       if (!cachedFontBytes) {
-        onStatusUpdate?.('正在下载宋体字体 (约10MB)...');
+        onStatusUpdate?.('Downloading Songti Font (~10MB)...');
         
-        // Use the official Google Fonts repository main branch which is more stable
+        // More reliable URLs for Noto Serif SC from the official google/fonts repository
         const fontSources = [
-          'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/notoserifsc/static/NotoSerifSC-Regular.ttf',
-          'https://raw.githubusercontent.com/google/fonts/main/ofl/notoserifsc/static/NotoSerifSC-Regular.ttf',
+          'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/notoserifsc/NotoSerifSC-Regular.ttf',
+          'https://raw.githubusercontent.com/google/fonts/main/ofl/notoserifsc/NotoSerifSC-Regular.ttf',
           'https://cdn.jsdelivr.net/gh/adobe-fonts/source-han-serif@2.001R/SubsetOTF/CN/SourceHanSerifCN-Regular.otf'
         ];
 
@@ -59,12 +59,11 @@ export const applyWatermark = async (
 
         for (const url of fontSources) {
           try {
-            onStatusUpdate?.(`尝试从节点下载字体...`);
+            onStatusUpdate?.(`Trying font source...`);
             const response = await fetch(url, { 
               mode: 'cors', 
               cache: 'force-cache',
-              // Add a longer timeout for large font files
-              signal: AbortSignal.timeout(60000) 
+              signal: AbortSignal.timeout(120000) // 2 minute timeout for large fonts
             });
             
             if (response.ok) {
@@ -75,30 +74,30 @@ export const applyWatermark = async (
             lastError = `HTTP ${response.status}: ${response.statusText}`;
           } catch (e: any) {
             lastError = e.message;
-            console.warn(`Font source ${url} failed:`, e);
+            console.warn(`Failed to fetch from ${url}:`, e);
           }
         }
 
         if (!success) {
-          throw new Error(`字体下载失败: ${lastError}。请检查您的网络连接或尝试更换网络环境。`);
+          throw new Error(`Font Load Failed: ${lastError}. Please check your internet connection or try a different network.`);
         }
       }
       
-      onStatusUpdate?.('正在向 PDF 注入字体资源...');
+      onStatusUpdate?.('Embedding font subset...');
       font = await pdfDoc.embedFont(cachedFontBytes!);
     } else {
-      onStatusUpdate?.('正在加载标准字体...');
+      onStatusUpdate?.('Loading standard font...');
       font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     }
 
-    onStatusUpdate?.('正在为每一页添加水印...');
+    onStatusUpdate?.('Applying watermark pattern...');
     const color = hexToRgb(config.color);
     const stepX = Math.max(config.spacingX, 20);
     const stepY = Math.max(config.spacingY, 20);
 
     for (const page of pages) {
       const { width, height } = page.getSize();
-      // Calculate a large enough area to cover the page regardless of rotation
+      
       const diagonal = Math.sqrt(width * width + height * height);
       const startX = -diagonal / 2;
       const endX = width + diagonal / 2;
@@ -120,13 +119,10 @@ export const applyWatermark = async (
       }
     }
 
-    onStatusUpdate?.('正在保存并优化文档...');
+    onStatusUpdate?.('Finalizing document...');
     return await pdfDoc.save();
   } catch (error: any) {
     console.error('PDF Service Error:', error);
-    if (error.message.includes('encode')) {
-      throw new Error(`编码错误: 字体加载可能不完整，或包含特殊不支持的字符。`);
-    }
-    throw new Error(error.message || '处理 PDF 时发生未知错误。');
+    throw new Error(error.message || 'Unknown error during PDF processing.');
   }
 };
